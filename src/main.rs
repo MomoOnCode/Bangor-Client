@@ -15,6 +15,10 @@
 // |
 // |=== Encrypted audio(opus codec) via UDP or TCP===>
 // encryption with SRTP??
+// __________________________
+// TODO First get starbuck and check if libsodium is actually Salsa20
+//      - make UDP / TCP Sender/Reciever
+//      - use libsodium+noise-xx for TCP
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
