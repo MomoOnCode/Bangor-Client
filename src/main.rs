@@ -22,19 +22,18 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 fn main() {
-    // share buffer that hold live audio data
-    // let mut shared_buff: Option<Arc<Mutex<VecDeque<f32>>>> = None;
-    // 2 streams variables created
-    let mut input_stream: Option<cpal::Stream> = None;
-    let mut output_stream: Option<cpal::Stream> = None;
-    let mut muted = 0;
+    // create audioloopback variables for each input/output stream pair for now
+    // TODO Webcam buddy
+    // let mut video = AudioLoopback::new();
+    let mut loopback = AudioLoopback::new();
 
     loop {
         println!("\nMenu:");
         println!("1. Commence Audio");
         println!("2. Stop the Audio");
         println!("3. Mute/Unmute");
-        println!("4. Exit...");
+        println!("4. Show status");
+        println!("5. Exit...");
         println!("Choose an option: ");
         io::stdout().flush().unwrap();
 
@@ -42,56 +41,122 @@ fn main() {
         io::stdin().read_line(&mut input).unwrap();
 
         match input.trim() {
-            "1" => {
-                if input_stream.is_none() && output_stream.is_none() {
-                    println!("AUDIO IS COMMENCING...");
-                    let shared_buff = Arc::new(Mutex::new(VecDeque::with_capacity(48_000)));
-                    input_stream = Some(create_microphone_stream(shared_buff.clone()));
-                    output_stream = Some(create_output_stream(shared_buff.clone()));
-                    input_stream.as_ref().unwrap().play().unwrap();
-                    output_stream.as_ref().unwrap().play().unwrap();
-                } else {
-                    println!("Audio has already commenced.");
-                }
-            }
-
-            "2" => {
-                println!("Stopping loopback");
-                input_stream = None;
-                output_stream = None;
-                // shared_buff = None;
-            }
-
-            "3" => {
-                if output_stream.is_some() && input_stream.is_some() && muted == 0 {
-                    println!("Muting...");
-                    muted = 1;
-                    output_stream.as_ref().unwrap().pause().unwrap();
-                } else if muted == 1 {
-                    println!("Unmuting...");
-                    muted = 0;
-                    output_stream.as_ref().unwrap().play().unwrap();
-                } else {
-                    println!("audio not started...");
-                }
-            }
-
-            "4" => {
-                println!("Exiting...");
+            "1" => loopback.start(),
+            "2" => loopback.stop(),
+            "3" => loopback.toggle_mute(),
+            "4" => loopback.status(),
+            "5" => {
+                loopback.stop();
                 break;
             }
-            _ => println!("Invalid selection, try again."),
+            _ => println!("Invalid selection."),
         }
     }
 }
 
-fn create_microphone_stream(shared_buff: Arc<Mutex<VecDeque<f32>>>) -> cpal::Stream {
-    let input_buffer = shared_buff.clone();
-    let host = cpal::default_host();
-    let device = host.default_input_device().expect("No input found.");
+struct AudioLoopback {
+    input_stream: Option<cpal::Stream>,
+    output_stream: Option<cpal::Stream>,
+    shared_buffer: Option<Arc<Mutex<VecDeque<f32>>>>,
+    muted: bool,
+}
 
-    let supported_audio_config = device.default_input_config().unwrap();
-    let config = supported_audio_config.config();
+impl AudioLoopback {
+    fn new() -> Self {
+        Self {
+            input_stream: None,
+            output_stream: None,
+            shared_buffer: None,
+            muted: false,
+        }
+    }
+
+    fn start(&mut self) {
+        let host = cpal::default_host();
+        let device = host.default_input_device().expect("No input found.");
+        let supported_audio_config = device.default_input_config().unwrap();
+        let config = supported_audio_config.config();
+        let sample_rate = config.sample_rate.0 as usize;
+
+        if self.input_stream.is_none() && self.output_stream.is_none() {
+            println!("Starting audio loopback...");
+            let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(sample_rate)));
+            self.input_stream = Some(create_microphone_stream(
+                device,
+                config,
+                buffer.clone(),
+                sample_rate,
+            ));
+            self.output_stream = Some(create_output_stream(buffer.clone()));
+            self.shared_buffer = Some(buffer);
+
+            self.input_stream.as_ref().unwrap().play().unwrap();
+            self.output_stream.as_ref().unwrap().play().unwrap();
+            self.muted = false;
+        } else {
+            println!("Audio is already running.");
+        }
+    }
+
+    fn stop(&mut self) {
+        if self.input_stream.is_some() || self.output_stream.is_some() {
+            println!("Stopping audio loopback...");
+            self.input_stream = None;
+            self.output_stream = None;
+            self.shared_buffer = None;
+            self.muted = false;
+        } else {
+            println!("Loopback is not running.");
+        }
+    }
+
+    fn toggle_mute(&mut self) {
+        if let Some(ref stream) = self.output_stream {
+            if self.muted {
+                println!("Unmuting...");
+                if let Some(ref buffer) = self.shared_buffer {
+                    buffer.lock().unwrap().clear();
+                }
+                stream.play().unwrap();
+                self.muted = false;
+            } else {
+                println!("Muting...");
+                stream.pause().unwrap();
+                self.muted = true;
+            }
+        } else {
+            println!("Audio not started.");
+        }
+    }
+
+    fn status(&self) {
+        println!(
+            "Input stream:  {}",
+            if self.input_stream.is_some() {
+                "running"
+            } else {
+                "not running"
+            }
+        );
+        println!(
+            "Output stream: {}",
+            if self.output_stream.is_some() {
+                "running"
+            } else {
+                "not running"
+            }
+        );
+        println!("Muted:         {}", if self.muted { "yes" } else { "no" });
+    }
+}
+
+fn create_microphone_stream(
+    device: cpal::Device,
+    config: cpal::StreamConfig,
+    shared_buff: Arc<Mutex<VecDeque<f32>>>,
+    sample_rate: usize,
+) -> cpal::Stream {
+    let input_buffer = shared_buff.clone();
 
     // Define error callback
     let err_fn = |err| eprintln!("Stream error: {}", err);
@@ -105,7 +170,7 @@ fn create_microphone_stream(shared_buff: Arc<Mutex<VecDeque<f32>>>) -> cpal::Str
                 for &sample in data {
                     buffer.push_back(sample);
                 }
-                while buffer.len() > 48_000 {
+                while buffer.len() > sample_rate {
                     buffer.pop_front();
                 }
             },
