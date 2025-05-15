@@ -36,3 +36,14 @@ The project is inspired by SFU-style architectures (like Discord), using **centr
                       +-------------------+
                       | UDP Relay to Peers |
                       +-------------------+
+
+```
+## Stack
+
+| Component  | Crate         | Notes                        |
+| ---------- | ------------- | ---------------------------- |
+| Audio I/O  | `cpal`        | Cross-platform mic/speaker   |
+| Codec      | `opus`        | Opus encoder/decoder binding |
+| Crypto     | `sodiumoxide` | Libsodium wrapper            |
+| Handshake  | `snow`        | Noise Protocol framework     |
+| Networking | `std::net`    | Raw UDP and TCP              |
