@@ -30,7 +30,7 @@ impl Serialize for LoginLoad {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct LoginResponse {
+pub struct Message {
     pub r#type: String,
     pub success: bool,
     pub message: String,
@@ -88,7 +88,7 @@ pub fn build_login_payload() -> Vec<u8> {
 pub fn read_message(
     stream: &mut TcpStream,
     session: &mut TransportState,
-) -> std::io::Result<LoginResponse> {
+) -> std::io::Result<Message> {
     let mut buf = [0u8; 1024];
     let len = stream.read(&mut buf)?;
 
@@ -96,7 +96,7 @@ pub fn read_message(
     let msg_len = session.read_message(&buf[..len], &mut out).unwrap();
 
     let json = &out[..msg_len];
-    let parsed: LoginResponse = from_slice(json).unwrap();
+    let parsed: Message = from_slice(json).unwrap();
 
     Ok(parsed)
 }

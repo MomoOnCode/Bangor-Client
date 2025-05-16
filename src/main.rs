@@ -52,7 +52,8 @@ fn main() {
             "3" => loopback.toggle_mute(),
             "4" => {
                 let payload = net::build_login_payload();
-                let (mut stream, mut session) = net::establish_command("192.168.0.19:420").unwrap();
+                let (mut stream, mut session) =
+                    net::establish_command("192.168.0.19:42069").unwrap();
                 net::send_message(&mut stream, &mut session, &payload).unwrap();
                 let response = read_message(&mut stream, &mut session).unwrap();
                 println!("{:?}", response);
