@@ -24,10 +24,11 @@ mod crypto;
 mod net;
 
 use audio::AudioLoopback;
-use net::read_message;
+use net::{establish_command, read_message, send_message};
 use std::io::{self, Write};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // TODO Webcam buddy
     // let mut video = AudioLoopback::new();
     let mut loopback = AudioLoopback::new();
@@ -51,19 +52,24 @@ fn main() {
             "2" => loopback.stop(),
             "3" => loopback.toggle_mute(),
             "4" => {
-                let payload = net::build_login_payload();
-                let (mut stream, mut session) =
-                    net::establish_command("192.168.0.19:42069").unwrap();
-                net::send_message(&mut stream, &mut session, &payload).unwrap();
-                let response = read_message(&mut stream, &mut session).unwrap();
-                println!("{:?}", response);
-                if response.r#type != "login_response" {
-                    println!("❌ Login failed: {}", response.message);
-                } else if response.success {
-                    println!("✅ Login OK: {}", response.message);
-                } else {
-                    println!("❌ Login failed: {}", response.message);
-                }
+                tokio::spawn(async move {
+                    let payload = net::build_login_payload();
+                    let (mut stream, mut session) =
+                        establish_command("192.168.0.19:42069").await.unwrap();
+
+                    send_message(&mut stream, &mut session, &payload)
+                        .await
+                        .unwrap();
+
+                    let response = read_message(&mut stream, &mut session).await.unwrap();
+                    if response.r#type != "login_response" {
+                        println!("❌ Login failed: {}", response.message);
+                    } else if response.success {
+                        println!("✅ Login OK: {}", response.message);
+                    } else {
+                        println!("❌ Login failed: {}", response.message);
+                    }
+                });
             }
             "5" => loopback.status(),
             "6" => {

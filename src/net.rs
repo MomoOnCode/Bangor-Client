@@ -1,68 +1,52 @@
 // TCP and UDP logic can go here
 
-use crate::crypto::{complete_handshake, start_handshake};
-use serde::Deserialize;
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-use serde_json::{from_slice, to_vec};
-use snow::TransportState;
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use crate::crypto::complete_handshake;
+// use cpal::Stream;
+use serde::ser::{SerializeStruct, Serializer};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string};
+use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
+// use std::io::{Read, Write};
+// use std::net::TcpStream;
 use std::u8;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
-struct LoginLoad {
-    r#type: String,
-    username: String,
-    password: String,
-}
-
-impl Serialize for LoginLoad {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = serializer.serialize_struct("LoginLoad", 3)?;
-
-        s.serialize_field("type", &self.r#type)?;
-        s.serialize_field("username", &self.username)?;
-        s.serialize_field("password", &self.password)?;
-        s.end()
-    }
-}
-
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Serialize)]
 pub struct Message {
     pub r#type: String,
     pub success: bool,
     pub message: String,
 }
 
-pub fn establish_command(addr: &str) -> std::io::Result<(TcpStream, TransportState)> {
-    let mut stream = TcpStream::connect(addr)?;
+pub async fn establish_command(
+    addr: &str,
+) -> Result<(tokio::net::TcpStream, snow::TransportState), Box<dyn std::error::Error>> {
+    let mut stream = tokio::net::TcpStream::connect(addr).await?;
 
-    // prep and send initial handshake message
-    let (handshake, init_msg) = start_handshake();
-    stream.write_all(&init_msg)?;
-
-    //recieve sever response
-    let mut init_response = [0u8; 1024];
-    let len = stream.read(&mut init_response)?;
-    let session = complete_handshake(handshake, &init_response[..len]);
+    let handshake = establish_client_handshake().unwrap();
+    let session = complete_handshake(&mut stream, handshake).await?;
 
     Ok((stream, session))
 }
 
-pub fn send_message(
+pub async fn send_message(
     stream: &mut TcpStream,
     session: &mut TransportState,
-    plaintext: &[u8],
+    msg: &Message,
 ) -> std::io::Result<()> {
-    let mut buf = [0u8; 1024];
-    let len = session.write_message(plaintext, &mut buf).unwrap();
-    stream.write_all(&buf[..len]).unwrap();
+    let json = to_string(msg).unwrap(); //coud use .map_err for cleaner handling ig
+    let plaintext = json.as_bytes();
+    let mut encrypted = [0u8; 1024];
+    let len = session.write_message(plaintext, &mut encrypted).unwrap();
+
+    stream.write_u16(len as u16).await?;
+    stream.write_all(&encrypted[..len]).await?;
+
     Ok(())
 }
 
-pub fn build_login_payload() -> Vec<u8> {
+pub fn build_login_payload() -> Message {
     use std::io::{Write, stdin, stdout};
 
     let mut user = String::new();
@@ -76,27 +60,51 @@ pub fn build_login_payload() -> Vec<u8> {
     stdout().flush().unwrap();
     stdin().read_line(&mut pass).unwrap();
 
-    let msg = LoginLoad {
-        r#type: "login_request".to_string(),
-        username: user.trim().to_string(),
-        password: pass.trim().to_string(),
-    };
+    let login_data = json!({
+        "username": user.trim(),
+        "password": pass.trim(),
+    });
 
-    to_vec(&msg).unwrap()
+    Message {
+        r#type: "login_request".to_string(),
+        success: false,
+        message: login_data.to_string(),
+    }
 }
 
-pub fn read_message(
+pub async fn read_message(
     stream: &mut TcpStream,
     session: &mut TransportState,
 ) -> std::io::Result<Message> {
     let mut buf = [0u8; 1024];
-    let len = stream.read(&mut buf)?;
+
+    // Read a 2-byte length prefix
+    let len = {
+        let mut len_bytes = [0u8; 2];
+        stream.read_exact(&mut len_bytes).await?;
+        u16::from_be_bytes(len_bytes) as usize
+    };
+
+    // Read the actual encrypted message
+    stream.read_exact(&mut buf[..len]).await?;
 
     let mut out = [0u8; 1024];
     let msg_len = session.read_message(&buf[..len], &mut out).unwrap();
 
     let json = &out[..msg_len];
-    let parsed: Message = from_slice(json).unwrap();
+    let parsed: Message = serde_json::from_slice(json).unwrap();
 
     Ok(parsed)
+}
+
+pub fn establish_client_handshake() -> Result<HandshakeState, Box<dyn std::error::Error>> {
+    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_Blake2s".parse()?;
+
+    let static_key = Builder::new(noise_params.clone()).generate_keypair()?;
+
+    let builder = Builder::new(noise_params).local_private_key(&static_key.private);
+
+    let handshake = builder.build_initiator()?;
+
+    Ok(handshake)
 }
