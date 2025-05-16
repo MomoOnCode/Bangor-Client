@@ -2,7 +2,7 @@
 
 use crate::crypto::complete_handshake;
 // use cpal::Stream;
-use serde::ser::{SerializeStruct, Serializer};
+// use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, to_string};
 use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
@@ -98,7 +98,7 @@ pub async fn read_message(
 }
 
 pub fn establish_client_handshake() -> Result<HandshakeState, Box<dyn std::error::Error>> {
-    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_Blake2s".parse()?;
+    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_Blake2b".parse()?;
 
     let static_key = Builder::new(noise_params.clone()).generate_keypair()?;
 
