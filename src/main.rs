@@ -52,8 +52,9 @@ async fn main() {
             "2" => loopback.stop(),
             "3" => loopback.toggle_mute(),
             "4" => {
+                let payload = net::build_login_payload();
+
                 tokio::spawn(async move {
-                    let payload = net::build_login_payload();
                     let (mut stream, mut session) =
                         establish_command("192.168.0.19:42069").await.unwrap();
 
