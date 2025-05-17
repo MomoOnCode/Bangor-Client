@@ -1,9 +1,7 @@
 // hocus pocus here is where i put opus
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-// use net::read_message;
 use std::collections::VecDeque;
-// use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 pub struct AudioLoopback {

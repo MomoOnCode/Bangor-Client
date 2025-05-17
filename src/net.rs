@@ -1,12 +1,13 @@
 // TCP and UDP logic can go here
 
-use crate::crypto::complete_handshake;
+use crate::crypto::{complete_handshake, establish_client_handshake};
 // use cpal::Stream;
 // use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string};
-use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
-// use std::io::{Read, Write};
+use serde_json::to_string;
+use snow::TransportState;
+use std::io::Error;
+use tokio::task::JoinHandle;
 // use std::net::TcpStream;
 use std::u8;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -46,32 +47,6 @@ pub async fn send_message(
     Ok(())
 }
 
-pub fn build_login_payload() -> Message {
-    use std::io::{Write, stdin, stdout};
-
-    let mut user = String::new();
-    let mut pass = String::new();
-
-    println!("Username: ");
-    stdout().flush().unwrap();
-    stdin().read_line(&mut user).unwrap();
-
-    println!("Password: ");
-    stdout().flush().unwrap();
-    stdin().read_line(&mut pass).unwrap();
-
-    let login_data = json!({
-        "username": user.trim(),
-        "password": pass.trim(),
-    });
-
-    Message {
-        r#type: "login_request".to_string(),
-        success: false,
-        message: login_data.to_string(),
-    }
-}
-
 pub async fn read_message(
     stream: &mut TcpStream,
     session: &mut TransportState,
@@ -97,14 +72,22 @@ pub async fn read_message(
     Ok(parsed)
 }
 
-pub fn establish_client_handshake() -> Result<HandshakeState, Box<dyn std::error::Error>> {
-    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_BLAKE2b".parse()?;
+pub async fn spawn_main_session_task(
+    mut stream: TcpStream,
+    mut session: TransportState,
+) -> Result<JoinHandle<()>, Error> {
+    let handle = tokio::spawn(async move {
+        loop {
+            let msg = match read_message(&mut stream, &mut session).await {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("❌ Connection lost: {}", e);
+                    break;
+                }
+            };
 
-    let static_key = Builder::new(noise_params.clone()).generate_keypair()?;
-
-    let builder = Builder::new(noise_params).local_private_key(&static_key.private);
-
-    let handshake = builder.build_initiator()?;
-
-    Ok(handshake)
+            println!("📥 {:?}", msg);
+        }
+    });
+    Ok(handle)
 }

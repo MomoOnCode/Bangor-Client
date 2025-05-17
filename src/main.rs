@@ -81,9 +81,9 @@ mod crypto;
 mod net;
 
 use audio::AudioLoopback;
-use net::{establish_command, read_message, send_message};
+use net::{establish_command, read_message, send_message, spawn_main_session_task};
 use std::io::{self, Write};
-use tokio::net::UdpSocket;
+// use tokio::net::UdpSocket;
 #[tokio::main]
 async fn main() {
     // TODO Webcam buddy
@@ -113,12 +113,12 @@ async fn main() {
                 // but just establishes a handhskae then spawns
                 // new tokio worker on success
 
-                let payload = net::build_login_payload();
+                let payload = crypto::build_login_payload();
 
-                // Run login inline to control flow
                 let login_result = tokio::spawn(async move {
-                    let (mut stream, mut session) =
-                        establish_command("192.168.0.19:42069").await.unwrap();
+                    let (mut stream, mut session) = establish_command("192.168.0.19:42069")
+                        .await
+                        .expect("Connection to server failed..");
 
                     send_message(&mut stream, &mut session, &payload)
                         .await
@@ -130,32 +130,16 @@ async fn main() {
                 .await
                 .unwrap(); // unwrap the JoinHandle
 
+                // unpack returned stuff into local bindings
                 let (response, mut stream, mut session) = login_result;
 
                 if response.r#type != "login_response" {
                     println!("❌ Login failed: {}", response.message);
                 } else if response.success {
                     println!("✅ Login OK: {}", response.message);
-
-                    // Spawn main session task
-                    tokio::spawn(async move {
-                        loop {
-                            let msg = match read_message(&mut stream, &mut session).await {
-                                Ok(m) => m,
-                                Err(e) => {
-                                    eprintln!("❌ Connection lost: {}", e);
-                                    break;
-                                }
-                            };
-
-                            println!("📥 {:?}", msg);
-
-                            //get the udp session started
-                            let udp_socket = UdpSocket::bind("0.0.0.0:0").await?;
-
-                            // match msg.r#type { ... }
-                        }
-                    });
+                    //start main tokio worker for command
+                    let join_handle =
+                        spawn_main_session_task(stream, session).expect("Main session task failed");
                 } else {
                     println!("❌ Login failed: {}", response.message);
                 }

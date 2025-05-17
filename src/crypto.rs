@@ -1,13 +1,11 @@
 // use std::io::BufRead;
 
 // all crypto stuff can go here
-use snow::{Builder, HandshakeState, TransportState};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-fn create_noise_client() -> HandshakeState {
-    let builder: Builder<'_> = Builder::new("Noise_XX_25519_ChchaPoly_Blake2s".parse().unwrap());
-    builder.build_initiator().unwrap()
-}
+use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
 
+use crate::net::Message;
+use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub async fn complete_handshake(
     stream: &mut tokio::net::TcpStream,
     mut handshake: HandshakeState,
@@ -31,4 +29,42 @@ pub async fn complete_handshake(
     }
 
     Ok(handshake.into_transport_mode()?)
+}
+
+pub fn establish_client_handshake() -> Result<HandshakeState, Box<dyn std::error::Error>> {
+    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_BLAKE2b".parse()?;
+
+    let static_key = Builder::new(noise_params.clone()).generate_keypair()?;
+
+    let builder = Builder::new(noise_params).local_private_key(&static_key.private);
+
+    let handshake = builder.build_initiator()?;
+
+    Ok(handshake)
+}
+
+pub fn build_login_payload() -> Message {
+    use std::io::{Write, stdin, stdout};
+
+    let mut user = String::new();
+    let mut pass = String::new();
+
+    println!("Username: ");
+    stdout().flush().unwrap();
+    stdin().read_line(&mut user).unwrap();
+
+    println!("Password: ");
+    stdout().flush().unwrap();
+    stdin().read_line(&mut pass).unwrap();
+
+    let login_data = json!({
+        "username": user.trim(),
+        "password": pass.trim(),
+    });
+
+    Message {
+        r#type: "login_request".to_string(),
+        success: false,
+        message: login_data.to_string(),
+    }
 }
