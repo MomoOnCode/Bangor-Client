@@ -98,7 +98,7 @@ pub async fn read_message(
 }
 
 pub fn establish_client_handshake() -> Result<HandshakeState, Box<dyn std::error::Error>> {
-    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_Blake2b".parse()?;
+    let noise_params: NoiseParams = "Noise_XX_25519_ChaChaPoly_BLAKE2b".parse()?;
 
     let static_key = Builder::new(noise_params.clone()).generate_keypair()?;
 
